@@ -15,6 +15,10 @@ export function useTable<T>(
     pageSize: 10,
     keyword: "",
     status: "",
+    category: "",
+    date: "",
+    startDate: "",
+    endDate: "",
   });
 
   //核心加载函数

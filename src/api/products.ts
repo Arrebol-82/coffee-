@@ -1,34 +1,63 @@
 import request from "@/utils/request";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import * as supabaseProducts from "@/services/productService";
 import type {
   Product,
+  InventoryLog,
+  InventoryPurchaseDTO,
   ProductQuery,
   PageResult,
   ProductCreateDTO,
   ProductUpdateDTO,
 } from "@/types/product";
 import type { ApiResponse } from "@/types/api";
-// Product 是类型 , 所以用 type 关键字 接收
 
-// 获取商品列表
 export function getProductList(params: ProductQuery) {
-  // 泛型 <PageResult<Product>> 告诉TS 返回值 data 的结构
+  if (isSupabaseConfigured) {
+    return supabaseProducts.getProductList(params);
+  }
+
   return request.get<any, ApiResponse<PageResult<Product>>>("/products", {
     params,
   });
 }
 
-// 1. 新增商品
+export function getInventoryLogs() {
+  if (isSupabaseConfigured) {
+    return supabaseProducts.getInventoryLogs();
+  }
+
+  return request.get<any, ApiResponse<InventoryLog[]>>("/inventory/logs");
+}
+
+export function purchaseInventory(payload: InventoryPurchaseDTO) {
+  if (isSupabaseConfigured) {
+    return supabaseProducts.purchaseInventory(payload);
+  }
+
+  return request.post<any, ApiResponse<Product>>("/inventory/purchase", payload);
+}
+
 export function createProduct(payload: ProductCreateDTO) {
-  return request.post<void>("/products", payload);
+  if (isSupabaseConfigured) {
+    return supabaseProducts.createProduct(payload);
+  }
+
+  return request.post<any, ApiResponse<null>>("/products", payload);
 }
 
-// 2. 编辑商品 (PUT)
-// 需要id定位, payload 是更新的数据
 export function updateProduct(id: number, payload: ProductUpdateDTO) {
-  return request.put<void>(`/products/${id}`, payload);
+  if (isSupabaseConfigured) {
+    return supabaseProducts.updateProduct(id, payload);
+  }
+
+  return request.put<any, ApiResponse<Product>>(`/products/${id}`, payload);
 }
 
-// 3. 删除商品
 export function deleteProduct(id: number) {
-  return request.delete<void>(`/products/${id}`);
+  if (isSupabaseConfigured) {
+    return supabaseProducts.deleteProduct(id);
+  }
+
+  return request.delete<any, ApiResponse<null>>(`/products/${id}`);
 }

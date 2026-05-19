@@ -10,7 +10,7 @@
         <!-- 搜索框：改了 placeholder 和绑定变量 -->
         <el-input
           v-model="queryParams.keyword"
-          placeholder="搜索订单号"
+          placeholder="搜索订单号/客户/电话"
           clearable
           style="width: 200px"
           @keyup.enter="handleSearch"
@@ -37,6 +37,16 @@
           />
         </el-select>
 
+        <el-date-picker
+          v-model="dateRange"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          style="width: 260px"
+          @change="handleDateChange"
+        />
+
         <!-- 按钮组：保留搜索和重置 -->
         <el-button type="primary" @click="handleSearch">
           <el-icon style="margin-right: 5px"><Search /></el-icon>
@@ -48,7 +58,14 @@
           重置
         </el-button>
 
-        <!-- 💡 订单通常不需要“新增”按钮，所以我这里去掉了，如果你想保留可以加回来 -->
+        <el-button
+          v-if="authStore.hasPerm('order:create')"
+          type="success"
+          @click="handleCreate"
+        >
+          <el-icon style="margin-right: 5px"><Plus /></el-icon>
+          添加订单
+        </el-button>
       </div>
     </el-card>
 
@@ -64,8 +81,8 @@
         <!-- ID 列 -->
         <el-table-column prop="id" label="ID" width="80" align="center" />
 
-        <!-- 订单号：对应后端字段 order -->
-        <el-table-column prop="order" label="订单号" min-width="180" />
+        <!-- 订单号：对应数据库字段 order_no -->
+        <el-table-column prop="order_no" label="订单号" min-width="180" />
 
         <!-- 总金额：后端是分，前端除以100 -->
         <el-table-column label="总金额" width="140">
@@ -121,16 +138,20 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from "vue";
-import { useRouter } from "vue-router";
-import { Search, Refresh, View } from "@element-plus/icons-vue";
+import { ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { Search, Refresh, View, Plus } from "@element-plus/icons-vue";
 // ✅ 核心 1: 引入 API 和 Hook
 import { getOrderList } from "@/api/orders";
-import type { OrderStaus } from "@/types/order";
+import type { OrderStatus } from "@/types/order";
 import { ORDER_STATUS_MAP } from "@/constants/order";
 import { useTable } from "@/composables/useTable";
+import { useAuthStore } from "@/stores/auth";
 
 const router = useRouter();
+const route = useRoute();
+const authStore = useAuthStore();
+const dateRange = ref<[string, string] | []>([]);
 
 // ✅ 核心 2: 使用 useTable 接管数据流
 // 这里的泛型 <Order> 非常关键，它让 tableData 知道自己装的是订单数据
@@ -155,7 +176,7 @@ const statusOptions = [
 
 
 // 状态显示逻辑 (Tag颜色)
-const statusMap = (status: OrderStaus) => {
+const statusMap = (status: OrderStatus) => {
   return ORDER_STATUS_MAP[status] || { type: "info", label: "未知状态" };
 };
 
@@ -164,6 +185,18 @@ const statusMap = (status: OrderStaus) => {
 const handleReset = () => {
   queryParams.keyword = "";
   queryParams.status = "";
+  queryParams.date = "";
+  queryParams.startDate = "";
+  queryParams.endDate = "";
+  dateRange.value = [];
+  handleSearch();
+};
+
+const handleDateChange = () => {
+  const range = dateRange.value;
+  queryParams.date = "";
+  queryParams.startDate = range[0] || "";
+  queryParams.endDate = range[1] || "";
   handleSearch();
 };
 
@@ -172,8 +205,24 @@ const handleDetail = (id: number) => {
   router.push(`/orders/${id}`);
 };
 
-onMounted(() => {
-  // 初始化数据
-  loadData();
-});
+const handleCreate = () => {
+  router.push("/orders/create");
+};
+
+watch(
+  () => route.query,
+  (query) => {
+    queryParams.keyword = String(query.keyword || "");
+    queryParams.status = String(query.status || "");
+    queryParams.date = String(query.date || "");
+    queryParams.startDate = String(query.startDate || "");
+    queryParams.endDate = String(query.endDate || "");
+    dateRange.value =
+      queryParams.startDate && queryParams.endDate
+        ? [queryParams.startDate, queryParams.endDate]
+        : [];
+    handleSearch();
+  },
+  { immediate: true }
+);
 </script>

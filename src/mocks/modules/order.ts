@@ -1,101 +1,168 @@
 import { http, HttpResponse, delay } from "msw";
-import type { OrderDetail, OrderStaus } from "@/types/order";
+import { dbProducts, recordInventoryLog } from "./product";
+import type { OrderCreateDTO, OrderDetail, OrderStatus } from "@/types/order";
 
-// map 创建出来的数组会把原来的给替换掉
+// localStorage key
+const ORDERS_STORAGE_KEY = "coffeesys_orders";
+// BroadcastChannel 用于跨页面通信
+const orderChannel = typeof BroadcastChannel !== "undefined"
+  ? new BroadcastChannel("order-updates")
+  : null;
 
-let allOrders = Array.from({ length: 55 }).map((_, index): OrderDetail => {
-  const statusList: OrderStaus[] = [
-    "pending",
-    "paid",
-    "shipped",
-    "completed",
-    "cancelled",
-  ];
-  return {
-    id: index + 1,
-    order: `ORDER${20260000 + index}`,
-    totalAmount: Math.floor(Math.random() * 1000) + 1000,
-    status: statusList[index % 5]!,
-    createTime: new Date(Date.now() - index * 864000000).toLocaleString(),
-    items: [
-      {
+// 从localStorage加载订单数据
+const loadOrdersFromStorage = (): OrderDetail[] => {
+  try {
+    const saved = localStorage.getItem(ORDERS_STORAGE_KEY);
+    if (saved) {
+      console.log("[Mock API] 从localStorage加载订单数据");
+      return JSON.parse(saved);
+    }
+  } catch (e) {
+    console.error("[Mock API] 读取localStorage失败:", e);
+  }
+
+  // 如果没有保存的数据，生成初始数据
+  console.log("[Mock API] 生成初始订单数据");
+  return Array.from({ length: 55 }).map(
+    (_, index): OrderDetail => {
+      const statusList: OrderStatus[] = [
+        "pending",
+        "paid",
+        "shipped",
+        "completed",
+        "cancelled",
+      ];
+      const createdAt = new Date(Date.now() - index * 86400000);
+
+      return {
         id: index + 1,
-        name: `香草拿铁咖啡 ${index + 1}号`,
-        price: 2800 + index * 100,
-        count: 1,
-      },
-      {
-        id: index + 2,
-        name: `香草拿铁咖啡 ${index + 2}号`,
-        price: 2800 + index * 100,
-        count: 2,
-      },
-    ],
-    logs: [
-      {
-        id: index + 1,
-        action: "创建订单",
-        operator: "系统",
-        createTime: new Date(Date.now() - index * 864000000).toLocaleString(),
-      },
-    ],
-  };
-});
+        order: `ORDER${20260000 + index}`,
+        customer: {
+          name: `客户${index + 1}`,
+          phone: `1380000${String(index + 1).padStart(4, "0")}`,
+          address: "门店自提",
+          remark: "",
+        },
+        totalAmount: Math.floor(Math.random() * 100000) + 3000,
+        status: statusList[index % statusList.length]!,
+        createTime: createdAt.toLocaleString(),
+        items: [
+          {
+            id: index + 1,
+            name: `埃塞俄比亚耶加雪菲 ${index + 1}`,
+            price: 6800 + index * 100,
+            count: 1,
+          },
+          {
+            id: index + 100,
+            name: `精品挂耳组合 ${index + 1}`,
+            price: 3900,
+            count: 2,
+          },
+        ],
+        logs: [
+          {
+            id: index + 1,
+            action: "创建订单",
+            operator: "系统",
+            createTime: createdAt.toLocaleString(),
+          },
+        ],
+      };
+    }
+  );
+};
+
+// 保存订单到localStorage
+const saveOrdersToStorage = (orders: OrderDetail[]) => {
+  try {
+    localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
+    console.log("[Mock API] 订单数据已保存到localStorage");
+    // 发送广播通知其他页面
+    if (orderChannel) {
+      orderChannel.postMessage({ type: "ORDER_UPDATED" });
+      console.log("[Mock API] 已发送订单更新广播");
+    }
+  } catch (e) {
+    console.error("[Mock API] 保存到localStorage失败:", e);
+  }
+};
+
+// 初始化订单数据
+export let allOrders: OrderDetail[] = loadOrdersFromStorage();
+console.log("[Mock API] 初始化完成，当前订单数:", allOrders.length);
 
 export const orderHandlers = [
-  // orders 订单 -----------------------------------
   http.get("/api/orders", async ({ request }) => {
-    // 模拟网络延迟 500ms 让你看到 loading 效果
-    await delay(1000);
+    console.log("[Mock API] 收到获取订单列表请求");
+    await delay(500);
 
-    const url = new URL(request.url); // 获取请求URL 指的是这个请求要飞往哪里。
-    // new URL 这个对象有一个 searchParams 属性 , 专门用来装 ? 后面的参数 并且把我们整理好了
-    // url.searchParams 专门用来装 ? 后面的参数上面说的
-    // 页码
+    // 每次查询都从 localStorage 重新加载最新数据
+    const freshOrders = loadOrdersFromStorage();
+    allOrders = freshOrders;
+
+    const url = new URL(request.url);
     const page = Number(url.searchParams.get("page")) || 1;
-    // 每页条数
     const pageSize = Number(url.searchParams.get("pageSize")) || 10;
-    // 搜索关键词
     const keyword = url.searchParams.get("keyword") || "";
-
-    // 状态匹配
     const status = url.searchParams.get("status") || "";
+    const date = url.searchParams.get("date") || "";
+    const startDate = url.searchParams.get("startDate") || "";
+    const endDate = url.searchParams.get("endDate") || "";
 
-    // 2. 模拟搜索 (简单的模糊匹配)
+    console.log("[Mock API] 查询参数:", { page, pageSize, keyword, status });
+    console.log("[Mock API] 当前订单总数:", allOrders.length);
+
     let resultList = allOrders;
 
-    // 模糊关键词搜索
     if (keyword) {
-      resultList = resultList.filter((item) => item.order.includes(keyword));
+      resultList = resultList.filter((item) =>
+        [item.order, item.customer.name, item.customer.phone].some((text) =>
+          String(text || "").includes(keyword)
+        )
+      );
     }
 
     if (status) {
-      // 过滤
       resultList = resultList.filter((item) => item.status === status);
     }
 
-    const total = resultList.length;
+    if (date === "today") {
+      const today = new Date().toDateString();
+      resultList = resultList.filter(
+        (item) => new Date(item.createTime).toDateString() === today
+      );
+    }
 
-    // 3. 模拟分页 (Slice 切割数组)
-    // 计算起始商品索引
+    if (startDate) {
+      const startTime = new Date(`${startDate} 00:00:00`).getTime();
+      resultList = resultList.filter(
+        (item) => new Date(item.createTime).getTime() >= startTime
+      );
+    }
+
+    if (endDate) {
+      const endTime = new Date(`${endDate} 23:59:59`).getTime();
+      resultList = resultList.filter(
+        (item) => new Date(item.createTime).getTime() <= endTime
+      );
+    }
+
     const start = (page - 1) * pageSize;
-    // 计算结束商品索引
-    const end = start + pageSize;
-    // 这里的pageList 是咖啡的数量 , 记住是咖啡的数量
-    const pageList = resultList.slice(start, end);
+    const pageList = resultList.slice(start, start + pageSize);
 
-    //4. 返回标准分页结构
+    console.log("[Mock API] 返回订单数:", pageList.length);
+
     return HttpResponse.json({
       code: 200,
       message: "success",
       data: {
-        list: pageList, // 返回的是需要展示在页面上的咖啡 , 不是咖啡的总数量
-        total: total, // 告诉前端总共有多少条咖啡
+        list: pageList,
+        total: resultList.length,
       },
     });
   }),
 
-  // 获取订单详情 -----------------------------------
   http.get("/api/orders/:id", async ({ params }) => {
     await delay(200);
     const id = Number(params.id);
@@ -116,32 +183,147 @@ export const orderHandlers = [
     });
   }),
 
-  // 更新订单状态 -----------------------------------
-  http.post("/api/orders/:id/status", async ({ params, request }) => {
-    await delay(500);
-    const id = Number(params.id);
-    // 获取前端传来的 { status: "shipped" }
-    const body = (await request.json()) as { status: OrderStaus };
+  http.post("/api/orders", async ({ request }) => {
+    console.log("[Mock API] 收到创建订单请求");
+    await delay(300);
 
-    const order = allOrders.find((item) => item.id === id);
+    const body = (await request.json()) as OrderCreateDTO;
+    console.log("[Mock API] 请求体:", body);
 
-    if (!order) {
-      return HttpResponse.json({ code: 404, message: "订单不存在" });
-    }
+    const draftItems = body.items
+      .map((item) => ({
+        ...item,
+        product: dbProducts.find((product) => product.id === item.productId),
+      }))
+      .filter((item) => item.product && item.count > 0);
 
-    if (order) {
-      // 核心业务逻辑: 该状态 + 加日志
-      const oldStatus = order.status;
-      order.status = body.status;
-      order.logs.push({
-        id: Date.now(),
-        action: `状态更新: ${oldStatus} -> ${body.status}`,
-        operator: "Admin", // 暂时先写死 , 以后可以从 Token 中解析
-        createTime: new Date().toLocaleString(),
+    if (draftItems.length === 0) {
+      return HttpResponse.json({
+        code: 400,
+        message: "请选择订单商品",
+        data: null,
       });
     }
 
+    const insufficientItem = draftItems.find(
+      (item) => item.product!.stock < item.count
+    );
 
+    if (insufficientItem) {
+      return HttpResponse.json({
+        code: 400,
+        message: `${insufficientItem.product!.name} 库存不足`,
+        data: null,
+      });
+    }
+
+    const items = draftItems.map((item) => {
+      const product = item.product!;
+
+      return {
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        count: item.count,
+      };
+    });
+
+    const nextId =
+      allOrders.length > 0 ? Math.max(...allOrders.map((order) => order.id)) + 1 : 1;
+    const createdAt = new Date().toLocaleString();
+    const orderNo = `ORDER${Date.now()}`;
+    const order: OrderDetail = {
+      id: nextId,
+      order: orderNo,
+      customer: body.customer,
+      totalAmount: items.reduce((total, item) => total + item.price * item.count, 0),
+      status: body.status ?? "pending",
+      createTime: createdAt,
+      items,
+      logs: [
+        {
+          id: Date.now(),
+          action: "创建订单",
+          operator: "Admin",
+          createTime: createdAt,
+        },
+      ],
+    };
+
+    draftItems.forEach((item) => {
+      const product = item.product!;
+      const beforeStock = product.stock;
+      product.stock -= item.count;
+      recordInventoryLog({
+        productId: product.id,
+        productName: product.name,
+        type: "out",
+        change: -item.count,
+        beforeStock,
+        afterStock: product.stock,
+        reason: `创建订单 ${orderNo}`,
+      });
+    });
+
+    allOrders.unshift(order);
+    saveOrdersToStorage(allOrders);
+    console.log("[Mock API] 订单创建成功，当前订单数:", allOrders.length);
+    console.log("[Mock API] 最新订单:", order);
+
+    return HttpResponse.json({
+      code: 200,
+      message: "创建成功",
+      data: order,
+    });
+  }),
+
+  http.post("/api/orders/:id/status", async ({ params, request }) => {
+    await delay(300);
+    const id = Number(params.id);
+    const body = (await request.json()) as { status: OrderStatus };
+    const order = allOrders.find((item) => item.id === id);
+
+    if (!order) {
+      return HttpResponse.json({
+        code: 404,
+        message: "订单不存在",
+        data: null,
+      });
+    }
+
+    const oldStatus = order.status;
+    order.status = body.status;
+
+    if (
+      body.status === "cancelled" &&
+      !["cancelled", "completed"].includes(oldStatus)
+    ) {
+      order.items.forEach((item) => {
+        const product = dbProducts.find((product) => product.id === item.id);
+        if (!product) return;
+
+        const beforeStock = product.stock;
+        product.stock += item.count;
+        recordInventoryLog({
+          productId: product.id,
+          productName: product.name,
+          type: "restore",
+          change: item.count,
+          beforeStock,
+          afterStock: product.stock,
+          reason: `取消订单 ${order.order}`,
+        });
+      });
+    }
+
+    order.logs.push({
+      id: Date.now(),
+      action: `状态更新：${oldStatus} -> ${body.status}`,
+      operator: "Admin",
+      createTime: new Date().toLocaleString(),
+    });
+
+    saveOrdersToStorage(allOrders);
 
     return HttpResponse.json({
       code: 200,

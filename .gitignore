@@ -1,12 +1,15 @@
-# 忽略依赖包目录
+# Dependencies
 node_modules/
 
-# 忽略编译产物（打包后的文件夹）
+# Build artifacts
 dist/
+dist-*/
+dist-ssr/
 
-# 忽略本地环境变量文件
+# Local environment files
 .env.local
 .env.*.local
+*.local
 
 # Logs
 logs
@@ -16,11 +19,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
 
 # Editor directories and files
 .vscode/*

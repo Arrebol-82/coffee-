@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "clean": "node tools/clean-artifacts.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
+    "@supabase/supabase-js": "^2.105.4",
     "axios": "^1.13.2",
     "element-plus": "^2.13.0",
+    "gsap": "^3.15.0",
     "pinia": "^3.0.4",
     "pinia-plugin-persistedstate": "^4.7.1",
     "vue": "^3.5.24",

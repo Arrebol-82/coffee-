@@ -59,8 +59,8 @@ export const useAuthStore = defineStore("auth", () => {
   };
 
   const userRole = computed(() => {
-    if (!token.value) return "没拿到";
-    return token.value.split("-")[0];
+    if (!token.value) return "未登录";
+    return token.value.includes("admin") ? "管理员" : "店员";
   });
   
   return {

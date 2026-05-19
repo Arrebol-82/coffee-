@@ -1,146 +1,20 @@
-<template>
-  <div class="product-list">
-    <!-- 1. 顶部操作区 (保留了你的搜索和筛选!) -->
-    <el-card class="box-card">
-      <div class="header-actions">
-        <!-- 左侧：搜索和筛选 -->
-        <div class="filter-container">
-          <!-- 关键词搜索 -->
-          <el-input
-            v-model="queryParams.keyword"
-            placeholder="请输入关键词"
-            clearable
-            style="width: 200px; margin-right: 10px"
-            @keyup.enter="handleSearch"
-            @clear="handleSearch"
-          >
-            <template #append>
-              <el-button @click="handleSearch">
-                <el-icon><Search /></el-icon>
-              </el-button>
-            </template>
-          </el-input>
-
-          <!-- 状态筛选 -->
-          <el-select
-            v-model="queryParams.status"
-            placeholder="请选择状态"
-            clearable
-            style="width: 150px; margin-right: 10px"
-            @change="handleSearch"
-          >
-            <!-- 你的状态选项 -->
-            <el-option label="全部" value="" />
-            <el-option label="在售" value="on_sale" />
-            <el-option label="售罄" value="sold_out" />
-          </el-select>
-        </div>
-        <!-- 右侧：新增按钮 (保留权限控制) -->
-        <!-- 注意: 如果你之前用了 v-if='authStore.has....' 保留 -->
-        <el-button
-          v-if="authStore.hasPerm('product:create')"
-          type="primary"
-          @click="handleCreate"
-        >
-          <el-icon style="margin-right: 5px"><Plus /></el-icon>
-          新增商品
-        </el-button>
-      </div>
-
-      <!-- 表格区域 -->
-      <el-table
-        v-loading="loading"
-        element-loading-text="拼命加载中..."
-        :data="tableData"
-        border
-        style="width: 100%; margin-top: 20px"
-      >
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="商品名称" />
-        <el-table-column label="价格" width="120">
-          <template #default="scope">
-            ¥{{ (scope.row.price / 100).toFixed(2) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="stock" label="库存" width="100" />
-        <el-table-column label="状态" width="100">
-          <template #default="scope">
-            <!-- 状态显示逻辑 -->
-            <el-tag
-              :type="scope.row.status === 'on_sale' ? 'success' : 'danger'"
-            >
-              {{ scope.row.status === "on_sale" ? "在售" : "售罄" }}
-            </el-tag>
-          </template>
-        </el-table-column>
-
-        <!-- 操作列 -->
-        <el-table-column label="操作" width="200" fixed="right">
-          <template #default="scope">
-            <el-button
-              v-if="authStore.hasPerm('product:edit')"
-              size="small"
-              type="primary"
-              link
-              @click="handleEdit(scope.row)"
-            >
-              <el-icon><Edit /></el-icon>
-              编辑
-            </el-button>
-            <!-- 删除按钮 (保留权限控制) -->
-            <el-button
-              v-if="authStore.hasPerm('product:delete')"
-              size="small"
-              type="danger"
-              link
-              @click="handleDelete(scope.row)"
-            >
-              <el-icon><Delete /></el-icon> 删除
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <!-- 3. 分页区域 (保留你的分页逻辑) -->
-      <div
-        class="pagination-container"
-        style="margin-top: 20px; display: flex; justify-content: flex-end"
-      >
-        <el-pagination
-          v-model:current-page="queryParams.page"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
-          :page-sizes="[10, 15, 20]"
-          @size-change="handleSearch"
-          @current-change="loadData"
-        />
-      </div>
-    </el-card>
-    <!-- 4. 融合核心: 弹窗组件  -->
-    <ProductFormDialog
-      v-model="dialogVisible"
-      :mode="dialogMode"
-      :current-id="currentRow?.id"
-      :initial-data="currentRow"
-      @success="loadData"
-    />
-  </div>
-</template>
-
 <script lang="ts" setup>
-import { ref, onMounted } from "vue";
+import { ref, watch } from "vue";
+import { useRoute } from "vue-router";
+import { Delete, Edit, Plus, Refresh, Search } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Search, Plus, Edit, Delete } from "@element-plus/icons-vue";
-// 引入API 和 类型
-import { getProductList, deleteProduct } from "@/api/products";
-import type { Product } from "@/types/product";
-//引入day3 写的组件
-import ProductFormDialog from "./components/ProductFormDialog.vue";
-// 如果你有 authStore 可以保留
-import { useAuthStore } from "@/stores/auth";
-const authStore = useAuthStore();
+import { deleteProduct, getProductList } from "@/api/products";
 import { useTable } from "@/composables/useTable";
+import { useAuthStore } from "@/stores/auth";
+import type { Product } from "@/types/product";
+import {
+  PRODUCT_CATEGORY_LABEL,
+  ROAST_LEVEL_LABEL,
+} from "@/types/product";
+import ProductFormDialog from "./components/ProductFormDialog.vue";
+
+const authStore = useAuthStore();
+const route = useRoute();
 
 const {
   loading,
@@ -149,64 +23,327 @@ const {
   queryParams,
   loadData,
   handleSearch,
-  handlePageChange,
-} = useTable(getProductList);
+} = useTable<Product>(getProductList);
 
-// 2. 弹窗控制 (新增和编辑)
 const dialogVisible = ref(false);
 const dialogMode = ref<"create" | "edit">("create");
-const currentRow = ref<Product | undefined>(undefined);
+const currentRow = ref<Product | undefined>();
 
-// 点击新增
+const formatMoney = (price: number) => `¥${(price / 100).toFixed(2)}`;
+
+const categoryLabel = (row: Product) => PRODUCT_CATEGORY_LABEL[row.category];
+
+const roastLabel = (row: Product) => ROAST_LEVEL_LABEL[row.roastLevel];
+
 const handleCreate = () => {
   dialogMode.value = "create";
   currentRow.value = undefined;
   dialogVisible.value = true;
 };
 
-// 点击编辑
 const handleEdit = (row: Product) => {
   dialogMode.value = "edit";
   currentRow.value = row;
   dialogVisible.value = true;
 };
 
-// 删除逻辑 (day5)
+const handleFormSuccess = () => {
+  if (dialogMode.value === "create") {
+    queryParams.page = 1;
+  }
+  loadData();
+};
+
+const handleReset = () => {
+  queryParams.keyword = "";
+  queryParams.status = "";
+  queryParams.category = "";
+  handleSearch();
+};
+
 const handleDelete = async (row: Product) => {
   try {
-    await ElMessageBox.confirm(`确定要删除商品 ${row.name} 吗?`, "删了就没咯", {
-      confirmButtonText: "确定咯",
+    await ElMessageBox.confirm(`确定要删除商品「${row.name}」吗？`, "删除确认", {
+      confirmButtonText: "删除",
       cancelButtonText: "取消",
       type: "warning",
     });
+
     await deleteProduct(row.id);
     ElMessage.success("删除成功");
 
-    // 细节优化: 如果当前页只有一条数据且不是第一页 , 删完后自动往前一页查询
     if (tableData.value.length === 1 && queryParams.page > 1) {
       queryParams.page--;
     }
     loadData();
   } catch (error) {
-    console.error(error);
-    // 取消删除
+    if (error !== "cancel") console.error(error);
   }
 };
 
-onMounted(() => {
-  loadData();
-});
+watch(
+  () => route.query,
+  (query) => {
+    queryParams.keyword = String(query.keyword || "");
+    queryParams.status = String(query.status || "");
+    queryParams.category = String(query.category || "");
+    handleSearch();
+  },
+  { immediate: true }
+);
 </script>
 
+<template>
+  <div class="product-page">
+    <el-card shadow="never">
+      <div class="page-toolbar">
+        <div class="filters">
+          <el-input
+            v-model="queryParams.keyword"
+            placeholder="搜索商品、产地或描述"
+            clearable
+            class="filter-input"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+
+          <el-select
+            v-model="queryParams.status"
+            placeholder="状态"
+            clearable
+            class="filter-select"
+            @change="handleSearch"
+          >
+            <el-option label="在售" value="on_sale" />
+            <el-option label="售罄" value="sold_out" />
+          </el-select>
+
+          <el-select
+            v-model="queryParams.category"
+            placeholder="分类"
+            clearable
+            class="filter-select"
+            @change="handleSearch"
+          >
+            <el-option label="手冲豆" value="beans" />
+            <el-option label="意式豆" value="espresso" />
+            <el-option label="挂耳咖啡" value="drip_bag" />
+            <el-option label="即饮咖啡" value="instant" />
+            <el-option label="咖啡器具" value="gear" />
+          </el-select>
+
+          <el-button :icon="Refresh" @click="handleReset">重置</el-button>
+        </div>
+
+        <el-button
+          v-if="authStore.hasPerm('product:create')"
+          type="primary"
+          :icon="Plus"
+          @click="handleCreate"
+        >
+          新增商品
+        </el-button>
+      </div>
+
+      <el-table
+        v-loading="loading"
+        :data="tableData"
+        border
+        class="product-table"
+        element-loading-text="正在加载商品..."
+        style="width: 100%; margin-top: 18px"
+      >
+        <el-table-column label="商品" min-width="260">
+          <template #default="{ row }">
+            <div class="product-cell">
+              <strong>{{ row.name }}</strong>
+              <span>{{ row.origin }} · {{ roastLabel(row) }}</span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="分类" width="110">
+          <template #default="{ row }">
+            {{ categoryLabel(row) }}
+          </template>
+        </el-table-column>
+
+        <el-table-column label="价格" width="110">
+          <template #default="{ row }">
+            <strong class="price">{{ formatMoney(row.price) }}</strong>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="库存" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag
+              :type="row.stock <= row.lowStockThreshold ? 'danger' : 'success'"
+              effect="plain"
+            >
+              {{ row.stock }} 件
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'on_sale' ? 'success' : 'info'">
+              {{ row.status === "on_sale" ? "在售" : "售罄" }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="推荐" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.recommended" type="warning" effect="plain">
+              推荐
+            </el-tag>
+            <span v-else class="muted">否</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="createTime" label="创建时间" min-width="170" />
+
+        <el-table-column label="操作" width="150" align="center">
+          <template #default="{ row }">
+            <div class="row-actions">
+              <el-button
+                v-if="authStore.hasPerm('product:edit')"
+                size="small"
+                type="primary"
+                link
+                :icon="Edit"
+                @click="handleEdit(row)"
+              >
+                编辑
+              </el-button>
+              <el-button
+                v-if="authStore.hasPerm('product:delete')"
+                size="small"
+                type="danger"
+                link
+                :icon="Delete"
+                @click="handleDelete(row)"
+              >
+                删除
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="queryParams.page"
+          v-model:page-size="queryParams.pageSize"
+          :total="total"
+          :page-sizes="[10, 15, 20]"
+          layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handleSearch"
+          @current-change="loadData"
+        />
+      </div>
+    </el-card>
+
+    <ProductFormDialog
+      v-model="dialogVisible"
+      :mode="dialogMode"
+      :current-id="currentRow?.id"
+      :initial-data="currentRow"
+      @success="handleFormSuccess"
+    />
+  </div>
+</template>
+
 <style scoped>
-.header-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+.product-page {
+  padding: 20px;
 }
-.filter-container {
+
+.page-toolbar,
+.filters {
   display: flex;
   align-items: center;
+}
+
+.page-toolbar {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.filters {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.filter-input {
+  width: 240px;
+}
+
+.filter-select {
+  width: 140px;
+}
+
+.product-cell {
+  display: grid;
+  gap: 4px;
+  line-height: 1.45;
+  min-width: 0;
+}
+
+.product-cell strong,
+.product-cell span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-cell span,
+.muted {
+  color: #909399;
+  font-size: 13px;
+}
+
+.price {
+  color: #f56c6c;
+}
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.row-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+@media (max-width: 760px) {
+  .page-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filter-input,
+  .filter-select {
+    width: 100%;
+  }
+
+  .pagination-container {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
 }
 </style>
