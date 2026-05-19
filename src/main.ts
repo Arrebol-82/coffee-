@@ -8,7 +8,9 @@ import "./style.css";
 import App from "./App.vue";
 
 async function enableMocking() {
-  const shouldUseMockApi = import.meta.env.DEV || window.location.hostname === "rexcode.xyz";
+  const mockHosts = ["rexcode.xyz", "coffee-inky-phi.vercel.app"];
+  const shouldUseMockApi =
+    import.meta.env.DEV || mockHosts.includes(window.location.hostname);
 
   if (shouldUseMockApi) {
     const { worker } = await import("./mocks/browser");
